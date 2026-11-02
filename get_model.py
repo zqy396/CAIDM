@@ -9,13 +9,13 @@ import yaml
 
 def get_model(config: Dict[str, Any]) -> nn.Module:
     """
-    根据配置获取模型
+    Get model based on configuration.
 
     Args:
-        config: 模型配置字典
+        config: Model configuration dictionary
 
     Returns:
-        初始化好的模型实例
+        Initialized model instance
     """
     model_config = config.get('model', {})
 
@@ -31,20 +31,20 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """
-    从YAML文件加载配置
+    Load configuration from YAML file.
 
     Args:
-        config_path: 配置文件路径
+        config_path: Configuration file path
 
     Returns:
-        配置字典
+        Configuration dictionary
     """
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     return config
 
 
-# 默认配置
+# Default configuration
 DEFAULT_CONFIG = {
     'model': {
         'num_classes': 4,
@@ -68,7 +68,7 @@ DEFAULT_CONFIG = {
 
 class ModelManager:
     """
-    模型管理器，用于统一管理模型的创建、保存和加载
+    Model manager for unified management of model creation, saving, and loading.
     """
 
     def __init__(self, config: Dict[str, Any] = None):
@@ -77,15 +77,15 @@ class ModelManager:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def create_model(self) -> nn.Module:
-        """创建模型"""
+        """Create model"""
         self.model = get_model(self.config)
         self.model = self.model.to(self.device)
         return self.model
 
     def save_checkpoint(self, filepath: str, optimizer=None, scheduler=None, epoch=None, metrics=None):
-        """保存检查点"""
+        """Save checkpoint"""
         if self.model is None:
-            raise ValueError("模型未初始化，请先调用 create_model()")
+            raise ValueError("Model not initialized, please call create_model() first")
 
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
@@ -100,24 +100,24 @@ class ModelManager:
             checkpoint['scheduler_state_dict'] = scheduler.state_dict()
 
         torch.save(checkpoint, filepath)
-        print(f"检查点已保存: {filepath}")
+        print(f"Checkpoint saved: {filepath}")
 
     def load_checkpoint(self, filepath: str, optimizer=None, scheduler=None):
-        """加载检查点"""
+        """Load checkpoint"""
         checkpoint = torch.load(filepath, map_location=self.device)
 
-        # 更新配置（如果有）
+        # Update config (if any)
         if 'config' in checkpoint:
             self.config.update(checkpoint['config'])
 
-        # 创建模型
+        # Create model
         if self.model is None:
             self.model = self.create_model()
 
-        # 加载模型权重
+        # Load model weights
         self.model.load_state_dict(checkpoint['model_state_dict'])
 
-        # 加载优化器和调度器状态（如果提供）
+        # Load optimizer and scheduler states (if provided)
         if optimizer and 'optimizer_state_dict' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if scheduler and 'scheduler_state_dict' in checkpoint:
@@ -126,47 +126,47 @@ class ModelManager:
         epoch = checkpoint.get('epoch', 0)
         metrics = checkpoint.get('metrics', {})
 
-        print(f"检查点已加载: {filepath} (epoch: {epoch})")
+        print(f"Checkpoint loaded: {filepath} (epoch: {epoch})")
         return epoch, metrics
 
 
-# ResNet50编码器
+# ResNet50 Encoder
 class ResNet50Encoder(nn.Module):
     """
-    ResNet50编码器，用于提取局部特征
+    ResNet50 encoder for extracting local features.
     """
 
     def __init__(self, pretrained=True):
         super(ResNet50Encoder, self).__init__()
         self.resnet = resnet50(pretrained=pretrained)
 
-        # 移除最后的分类层
+        # Remove the final classification layer
         self.resnet = nn.Sequential(*list(self.resnet.children())[:-2])
 
-        # 全局平均池化
+        # Global average pooling
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-        # 投影层，将2048维特征投影到384维
+        # Projection layer, projecting 2048-dim features to 384-dim
         self.projection = nn.Linear(2048, 384)
 
     def forward(self, x):
-        # 提取特征图
+        # Extract feature map
         feature_map = self.resnet(x)
 
-        # 全局平均池化
+        # Global average pooling
         features = self.avgpool(feature_map)
         features = features.view(features.size(0), -1)
 
-        # 投影到目标维度
+        # Project to target dimension
         features = self.projection(features)
 
         return features, feature_map
 
 
-# DINOv2编码器
+# DINOv2 Encoder
 class DINOv2Encoder(nn.Module):
     """
-    DINOv2编码器，用于提取全局特征
+    DINOv2 encoder for extracting global features.
     """
 
     def __init__(self, model_name='vit_small_patch14_dinov2'):
@@ -179,10 +179,10 @@ class DINOv2Encoder(nn.Module):
         return features
 
 
-# 门控网络
+# Gating Network
 class GatingNetwork(nn.Module):
     """
-    门控网络，用于动态融合两个编码器的特征
+    Gating network for dynamically fusing features from two encoders.
     """
 
     def __init__(self, input_dim, hidden_dim=512, output_dim=384, dropout=0.1):
@@ -195,7 +195,7 @@ class GatingNetwork(nn.Module):
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim * 2),  # 输出两个权重
+            nn.Linear(hidden_dim // 2, output_dim * 2),  # Output two weights
             nn.Softmax(dim=1)
         )
 
@@ -207,10 +207,10 @@ class GatingNetwork(nn.Module):
         return a_res, a_dino
 
 
-# 更新模型定义以支持更多配置选项
+# Update model definition to support more configuration options
 class EGJAFoundationModel(nn.Module):
     """
-    用于EGJA分期诊断的AI基础模型
+    AI Foundation Model for EGJA staging diagnosis.
     """
 
     def __init__(self,
@@ -220,31 +220,31 @@ class EGJAFoundationModel(nn.Module):
                  use_pretrained: bool = True):
         super(EGJAFoundationModel, self).__init__()
 
-        # 两个编码器
+        # Two encoders
         self.resnet_encoder = ResNet50Encoder(pretrained=use_pretrained)
         self.dinov2_encoder = DINOv2Encoder(model_name=dino_model_name)
 
-        # 获取特征维度
-        resnet_dim = 384  # ResNet投影后的维度
+        # Get feature dimensions
+        resnet_dim = 384  # Dimension after ResNet projection
         dino_dim = self.dinov2_encoder.out_channels
 
-        # 确保两个编码器的输出维度一致
+        # Ensure the output dimensions of the two encoders match
         if resnet_dim != dino_dim:
-            print(f"警告: ResNet维度({resnet_dim})与DINOv2维度({dino_dim})不匹配，将进行投影")
+            print(f"Warning: ResNet dimension ({resnet_dim}) does not match DINOv2 dimension ({dino_dim}), projecting...")
             self.resnet_projection = nn.Linear(resnet_dim, dino_dim)
             resnet_dim = dino_dim
         else:
             self.resnet_projection = nn.Identity()
 
-        # 门控网络
+        # Gating network
         self.gating_network = GatingNetwork(
-            input_dim=resnet_dim * 2,  # 两个编码器的特征拼接
+            input_dim=resnet_dim * 2,  # Concatenation of features from both encoders
             hidden_dim=512,
             output_dim=dino_dim,
             dropout=dropout
         )
 
-        # 分类器
+        # Classifier
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(dino_dim, 256),
@@ -253,30 +253,30 @@ class EGJAFoundationModel(nn.Module):
             nn.Linear(256, num_classes)
         )
 
-        # 存储配置
+        # Store config
         self.num_classes = num_classes
         self.dropout = dropout
 
     def forward(self, x):
         batch_size = x.shape[0]
 
-        # 通过ResNet50编码器提取局部特征
+        # Extract local features via ResNet50 encoder
         resnet_features, resnet_feature_map = self.resnet_encoder(x)
         resnet_features = self.resnet_projection(resnet_features)
 
-        # 通过DINOv2编码器提取全局特征
+        # Extract global features via DINOv2 encoder
         dinov2_features = self.dinov2_encoder(x)
 
-        # 拼接特征
+        # Concatenate features
         concatenated_features = torch.cat([resnet_features, dinov2_features], dim=1)
 
-        # 通过门控网络获取权重
+        # Get weights via gating network
         a_res, a_dino = self.gating_network(concatenated_features)
 
-        # 逐元素融合特征
+        # Element-wise feature fusion
         fused_features = a_res * resnet_features + a_dino * dinov2_features
 
-        # 分类
+        # Classification
         logits = self.classifier(fused_features)
 
         return {
@@ -289,21 +289,21 @@ class EGJAFoundationModel(nn.Module):
         }
 
 
-# 使用示例
+# Usage Example
 # def main():
-#     # 方法1: 使用默认配置
+#     # Method 1: Use default config
 #     config = DEFAULT_CONFIG
 #     model = get_model(config)
 #
-#     # 方法2: 使用模型管理器
+#     # Method 2: Use model manager
 #     model_manager = ModelManager()
 #     model = model_manager.create_model()
 #
-#     # 打印模型信息
-#     print(f"模型类别数: {model.num_classes}")
-#     print(f"Dropout率: {model.dropout}")
+#     # Print model info
+#     print(f"Model num_classes: {model.num_classes}")
+#     print(f"Dropout rate: {model.dropout}")
 #
-#     # 测试前向传播
+#     # Test forward pass
 #     batch_size = 2
 #     input_size = 518
 #     x = torch.randn(batch_size, 3, input_size, input_size)
@@ -311,17 +311,17 @@ class EGJAFoundationModel(nn.Module):
 #     with torch.no_grad():
 #         outputs = model(x)
 #
-#     print(f"输入尺寸: {x.shape}")
-#     print(f"输出logits尺寸: {outputs['logits'].shape}")
-#     print(f"融合特征尺寸: {outputs['fused_features'].shape}")
+#     print(f"Input shape: {x.shape}")
+#     print(f"Output logits shape: {outputs['logits'].shape}")
+#     print(f"Fused features shape: {outputs['fused_features'].shape}")
 #
-#     # 保存检查点示例
+#     # Checkpoint saving example
 #     # model_manager.save_checkpoint('checkpoint.pth', epoch=0)
 #
 #
-# # 如果要将配置保存到文件
+# # If you want to save config to file
 # def save_config(config: Dict[str, Any], filepath: str):
-#     """保存配置到YAML文件"""
+#     """Save config to YAML file"""
 #     with open(filepath, 'w') as f:
 #         yaml.dump(config, f, default_flow_style=False)
 #
