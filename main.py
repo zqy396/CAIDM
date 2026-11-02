@@ -1,10 +1,10 @@
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_curve, auc
 
+# Force headless backend to prevent plt.show() errors or freezing
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -22,13 +22,13 @@ import PIL.Image
 
 PIL.Image.MAX_IMAGE_PIXELS = 1000000000
 
-# ================= 全局类别定义（改回三类） =================
+# ================= Global Class Definitions =================
 CLASS_NAMES = ['HGC', 'LGC', 'MIBC']
 NUM_CLASSES = len(CLASS_NAMES)
 
 
 class Trainer:
-    """训练器类"""
+    """Trainer class"""
 
     def __init__(self, model, train_loader, val_loader, criterion, optimizer, device, scheduler=None,
                  save_dir='checkpoints'):
@@ -116,11 +116,11 @@ class Trainer:
 
     def format_time(self, seconds):
         if seconds < 60:
-            return f"{seconds:.1f}秒"
+            return f"{seconds:.1f}s"
         elif seconds < 3600:
-            return f"{seconds / 60:.1f}分钟"
+            return f"{seconds / 60:.1f}min"
         else:
-            return f"{seconds / 3600:.1f}小时"
+            return f"{seconds / 3600:.1f}h"
 
     def print_epoch_summary(self, epoch, total_epochs, train_loss, train_acc, val_loss, val_acc, epoch_time):
         self.epoch_times.append(epoch_time)
@@ -129,14 +129,14 @@ class Trainer:
         estimated_remaining_time = avg_epoch_time * remaining_epochs
 
         print(f"\nEpoch {epoch}/{total_epochs}:")
-        print(f"  训练损失: {train_loss:.4f}, 训练准确率: {train_acc:.4f}")
-        print(f"  验证损失: {val_loss:.4f}, 验证准确率: {val_acc:.4f}")
-        print(f"  本轮时间: {self.format_time(epoch_time)}")
-        print(f"  平均每轮时间: {self.format_time(avg_epoch_time)}")
-        print(f"  预计剩余时间: {self.format_time(estimated_remaining_time)}")
+        print(f"  Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
+        print(f"  Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+        print(f"  Epoch Time: {self.format_time(epoch_time)}")
+        print(f"  Avg Epoch Time: {self.format_time(avg_epoch_time)}")
+        print(f"  Estimated Remaining Time: {self.format_time(estimated_remaining_time)}")
 
         if val_acc > self.best_val_acc:
-            print(f"  🎯 新最佳模型! 验证准确率: {val_acc:.4f}")
+            print(f"  🎯 New best model! Val Acc: {val_acc:.4f}")
 
     def save_checkpoint(self, epoch, is_best=False):
         checkpoint = {
@@ -161,10 +161,10 @@ class Trainer:
         if is_best:
             best_model_path = os.path.join(self.save_dir, 'best_model.pth')
             torch.save(checkpoint, best_model_path)
-            print(f'✅ 最佳模型已保存，验证准确率: {self.best_val_acc:.4f}')
+            print(f'✅ Best model saved, Val Acc: {self.best_val_acc:.4f}')
 
     def train(self, num_epochs, save_interval=5):
-        print("开始训练...")
+        print("Starting training...")
         self.start_time = time.time()
 
         for epoch in range(1, num_epochs + 1):
@@ -195,10 +195,10 @@ class Trainer:
             self.save_checkpoint(epoch, is_best=is_best)
 
         total_time = time.time() - self.start_time
-        print(f"\n🎉 训练完成！")
-        print(f"   总训练时间: {self.format_time(total_time)}")
-        print(f"   最佳验证准确率: {self.best_val_acc:.4f} (第 {self.best_epoch} 轮)")
-        print(f"   平均每轮时间: {self.format_time(np.mean(self.epoch_times))}")
+        print(f"\n🎉 Training completed!")
+        print(f"   Total training time: {self.format_time(total_time)}")
+        print(f"   Best Val Acc: {self.best_val_acc:.4f} (Epoch {self.best_epoch})")
+        print(f"   Avg epoch time: {self.format_time(np.mean(self.epoch_times))}")
 
         return self.train_losses, self.val_losses, self.train_accuracies, self.val_accuracies
 
@@ -226,10 +226,10 @@ def evaluate_model(model, test_loader, device, class_names=CLASS_NAMES):
     report = classification_report(all_targets, all_predictions, target_names=class_names,
                                     labels=list(range(len(class_names))), zero_division=0)
 
-    print(f"测试准确率: {accuracy:.4f}")
-    print("\n混淆矩阵:")
+    print(f"Test Accuracy: {accuracy:.4f}")
+    print("\nConfusion Matrix:")
     print(cm)
-    print("\n分类报告:")
+    print("\nClassification Report:")
     print(report)
 
     return {
@@ -248,31 +248,31 @@ def plot_training_history(trainer, save_dir='results'):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
     epochs = range(1, len(trainer.train_losses) + 1)
-    ax1.plot(epochs, trainer.train_losses, 'b-', label='训练损失', linewidth=2)
-    ax1.plot(epochs, trainer.val_losses, 'r-', label='验证损失', linewidth=2)
-    ax1.set_title('训练和验证损失')
-    ax1.set_xlabel('轮次')
-    ax1.set_ylabel('损失')
+    ax1.plot(epochs, trainer.train_losses, 'b-', label='Train Loss', linewidth=2)
+    ax1.plot(epochs, trainer.val_losses, 'r-', label='Val Loss', linewidth=2)
+    ax1.set_title('Training and Validation Loss')
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
 
     if trainer.best_epoch > 0:
         ax1.axvline(x=trainer.best_epoch, color='g', linestyle='--', alpha=0.7,
-                    label=f'最佳轮次 ({trainer.best_epoch})')
+                    label=f'Best Epoch ({trainer.best_epoch})')
         ax1.legend()
 
-    ax2.plot(epochs, trainer.train_accuracies, 'b-', label='训练准确率', linewidth=2)
-    ax2.plot(epochs, trainer.val_accuracies, 'r-', label='验证准确率', linewidth=2)
-    ax2.set_title('训练和验证准确率')
-    ax2.set_xlabel('轮次')
-    ax2.set_ylabel('准确率')
+    ax2.plot(epochs, trainer.train_accuracies, 'b-', label='Train Acc', linewidth=2)
+    ax2.plot(epochs, trainer.val_accuracies, 'r-', label='Val Acc', linewidth=2)
+    ax2.set_title('Training and Validation Accuracy')
+    ax2.set_xlabel('Epochs')
+    ax2.set_ylabel('Accuracy')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
 
     best_epoch_idx = trainer.best_epoch - 1
     if trainer.best_epoch > 0 and 0 <= best_epoch_idx < len(trainer.val_accuracies):
         ax2.axvline(x=trainer.best_epoch, color='g', linestyle='--', alpha=0.7,
-                    label=f'最佳准确率: {trainer.best_val_acc:.4f}')
+                    label=f'Best Acc: {trainer.best_val_acc:.4f}')
         ax2.plot(trainer.best_epoch, trainer.val_accuracies[best_epoch_idx], 'go', markersize=8)
         ax2.legend()
 
@@ -309,11 +309,11 @@ def plot_roc_curve(results, class_names=CLASS_NAMES, save_dir='results'):
 
     fig = plt.figure(figsize=(10, 8))
 
-    # 多分类 One-vs-Rest ROC
+    # Multi-class One-vs-Rest ROC
     for i in range(n_classes):
         binary_targets = (targets == i).astype(int)
         if binary_targets.sum() == 0:
-            print(f"⚠️ 类别 {class_names[i]} 在测试集中没有样本，跳过该类别 ROC")
+            print(f"⚠️ Class {class_names[i]} has no samples in test set, skipping ROC")
             continue
         fpr[i], tpr[i], _ = roc_curve(binary_targets, probabilities[:, i])
         roc_auc[i] = float(auc(fpr[i], tpr[i]))
@@ -321,12 +321,12 @@ def plot_roc_curve(results, class_names=CLASS_NAMES, save_dir='results'):
         plt.plot(fpr[i], tpr[i], linewidth=2,
                  label=f'{class_names[i]} (AUC = {roc_auc[i]:.4f})')
 
-    plt.plot([0, 1], [0, 1], 'k--', linewidth=2, label='随机猜测')
+    plt.plot([0, 1], [0, 1], 'k--', linewidth=2, label='Random Guess')
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
-    plt.xlabel('假正率 (False Positive Rate)')
-    plt.ylabel('真正率 (True Positive Rate)')
-    plt.title('多分类ROC曲线 (One-vs-Rest)')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Multi-class ROC Curve (One-vs-Rest)')
     plt.legend(loc="lower right")
     plt.grid(True, alpha=0.3)
 
@@ -365,9 +365,9 @@ def plot_confusion_matrix(results, class_names=CLASS_NAMES, save_dir='results'):
                      ha="center", va="center",
                      color="white" if cm[i, j] > thresh else "black")
 
-    plt.xlabel('预测标签')
-    plt.ylabel('真实标签')
-    plt.title('混淆矩阵')
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix')
     tick_marks = np.arange(len(class_names))
     plt.xticks(tick_marks, class_names)
     plt.yticks(tick_marks, class_names)
@@ -406,30 +406,30 @@ def save_final_results(results, trainer, roc_auc, save_dir='results'):
         json.dump(final_results, f, indent=4, ensure_ascii=False)
 
     with open(os.path.join(save_dir, 'final_report.txt'), 'w', encoding='utf-8') as f:
-        f.write("模型训练最终报告\n")
+        f.write("Model Training Final Report\n")
         f.write("=" * 50 + "\n\n")
-        f.write(f"训练时间: {final_results['timestamp']}\n")
-        f.write(f"类别: {CLASS_NAMES}\n")
-        f.write(f"测试准确率: {final_results['test_accuracy']:.4f}\n")
-        f.write(f"最佳验证准确率: {final_results['best_validation_accuracy']:.4f} "
-                f"(第{final_results['best_epoch']}轮)\n\n")
+        f.write(f"Training Time: {final_results['timestamp']}\n")
+        f.write(f"Classes: {CLASS_NAMES}\n")
+        f.write(f"Test Accuracy: {final_results['test_accuracy']:.4f}\n")
+        f.write(f"Best Val Acc: {final_results['best_validation_accuracy']:.4f} "
+                f"(Epoch {final_results['best_epoch']})\n\n")
 
-        f.write("ROC AUC分数:\n")
+        f.write("ROC AUC Scores:\n")
         for class_name, auc_score in final_results['roc_auc'].items():
             f.write(f"  {class_name}: {auc_score:.4f}\n")
         f.write("\n")
 
-        f.write("混淆矩阵:\n")
+        f.write("Confusion Matrix:\n")
         f.write(str(results['confusion_matrix']) + "\n\n")
 
-        f.write("分类报告:\n")
+        f.write("Classification Report:\n")
         f.write(results['classification_report'] + "\n")
 
 
-# ================= 使用示例 =================
+# ================= Execution Example =================
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'使用设备: {device}')
+    print(f'Using device: {device}')
 
     config = {
         'num_classes': NUM_CLASSES,
@@ -438,7 +438,7 @@ if __name__ == "__main__":
 
     model = get_model(config).to(device)
     if torch.cuda.device_count() > 1:
-        print(f"使用 {torch.cuda.device_count()} 个GPU进行数据并行训练")
+        print(f"Using {torch.cuda.device_count()} GPUs for data parallel training")
         model = nn.DataParallel(model)
 
     image_transforms = {
@@ -476,13 +476,13 @@ if __name__ == "__main__":
         'test': datasets.ImageFolder(root=test_directory, transform=image_transforms['test'])
     }
 
-    print(f"📂 训练集类别: {data['train'].classes}  | 数量: {[len([x for x in data['train'].targets if x == i]) for i in range(len(data['train'].classes))]}")
-    print(f"📂 验证集类别: {data['valid'].classes}")
-    print(f"📂 测试集类别: {data['test'].classes}")
+    print(f"📂 Train Classes: {data['train'].classes}  | Count: {[len([x for x in data['train'].targets if x == i]) for i in range(len(data['train'].classes))]}")
+    print(f"📂 Valid Classes: {data['valid'].classes}")
+    print(f"📂 Test Classes: {data['test'].classes}")
 
     if data['train'].classes != CLASS_NAMES:
-        print(f"⚠️ 警告: 数据集实际类别顺序 {data['train'].classes} 与 CLASS_NAMES {CLASS_NAMES} 不一致！"
-              f"请调整 CLASS_NAMES 顺序或文件夹名，否则 label 与类别名会错配。")
+        print(f"⚠️ Warning: Dataset actual class order {data['train'].classes} does not match CLASS_NAMES {CLASS_NAMES}! "
+              f"Please adjust CLASS_NAMES order or folder names, otherwise labels will mismatch.")
 
     train_loader = DataLoader(data['train'], batch_size=30, shuffle=True)
     val_loader = DataLoader(data['valid'], batch_size=30, shuffle=True)
@@ -498,7 +498,7 @@ if __name__ == "__main__":
     train_losses, val_losses, train_accs, val_accs = trainer.train(num_epochs=20)
 
     if trainer.best_model_state is not None:
-        print("🔄 加载最佳模型权重进行测试...")
+        print("🔄 Loading best model weights for testing...")
         state_dict = trainer.best_model_state
         if isinstance(model, nn.DataParallel):
             model.module.load_state_dict(state_dict)
@@ -513,4 +513,4 @@ if __name__ == "__main__":
 
     save_final_results(results, trainer, roc_auc, save_dir='results')
 
-    print("模型训练和评估完成！所有结果已保存在 results 文件夹中。")
+    print("Model training and evaluation completed! All results saved in the 'results' folder.")
