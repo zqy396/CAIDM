@@ -1,10 +1,10 @@
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_curve, auc
 
-# ★ 强制使用无界面后端，防止 plt.show() 报错或卡死
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -20,11 +20,10 @@ from tqdm import tqdm
 import time
 import PIL.Image
 
-PIL.Image.MAX_IMAGE_PIXELS = 1000000000  # 10亿像素
+PIL.Image.MAX_IMAGE_PIXELS = 1000000000
 
-# ================= 全局类别定义 =================
-# ★ 改为二分类：BCA 和 NOR
-CLASS_NAMES = ['bca', 'nor']
+# ================= 全局类别定义（改回三类） =================
+CLASS_NAMES = ['HGC', 'LGC', 'MIBC']
 NUM_CLASSES = len(CLASS_NAMES)
 
 
@@ -186,7 +185,6 @@ class Trainer:
 
             self.print_epoch_summary(epoch, num_epochs, train_loss, train_acc, val_loss, val_acc, epoch_time)
 
-            # 检查是否为最佳模型
             is_best = False
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
@@ -194,7 +192,6 @@ class Trainer:
                 self.best_model_state = self.model.state_dict().copy()
                 is_best = True
 
-            # ★ 每一个 epoch 都保存检查点
             self.save_checkpoint(epoch, is_best=is_best)
 
         total_time = time.time() - self.start_time
@@ -282,7 +279,7 @@ def plot_training_history(trainer, save_dir='results'):
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, 'training_history.png'), dpi=300, bbox_inches='tight')
     plt.savefig(os.path.join(save_dir, 'training_history.pdf'), bbox_inches='tight')
-    plt.close(fig) # ★ 替换 plt.show()，释放内存
+    plt.close(fig)
 
     history_data = {
         'train_losses': [float(x) for x in trainer.train_losses],
@@ -312,6 +309,7 @@ def plot_roc_curve(results, class_names=CLASS_NAMES, save_dir='results'):
 
     fig = plt.figure(figsize=(10, 8))
 
+    # 多分类 One-vs-Rest ROC
     for i in range(n_classes):
         binary_targets = (targets == i).astype(int)
         if binary_targets.sum() == 0:
@@ -328,7 +326,7 @@ def plot_roc_curve(results, class_names=CLASS_NAMES, save_dir='results'):
     plt.ylim([0.0, 1.05])
     plt.xlabel('假正率 (False Positive Rate)')
     plt.ylabel('真正率 (True Positive Rate)')
-    plt.title('ROC曲线 (One-vs-Rest)')
+    plt.title('多分类ROC曲线 (One-vs-Rest)')
     plt.legend(loc="lower right")
     plt.grid(True, alpha=0.3)
 
@@ -429,40 +427,30 @@ def save_final_results(results, trainer, roc_auc, save_dir='results'):
 
 
 # ================= 使用示例 =================
-
 if __name__ == "__main__":
-    # 设备配置
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'使用设备: {device}')
 
-    # 模型配置
     config = {
         'num_classes': NUM_CLASSES,
         'dropout': 0.1
     }
 
-    # 创建模型
     model = get_model(config).to(device)
     if torch.cuda.device_count() > 1:
         print(f"使用 {torch.cuda.device_count()} 个GPU进行数据并行训练")
         model = nn.DataParallel(model)
 
-    # ★ 数据转换：加入数据扩增
     image_transforms = {
         'train': transforms.Compose([
             transforms.Resize((518, 518)),
-            # 几何扩增
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.5),
             transforms.RandomRotation(degrees=15),
-            # 颜色/光照扩增
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
-            # 模糊
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.3),
-            # 转 Tensor 和 标准化
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            # 随机擦除（模拟遮挡）
             transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), ratio=(0.3, 3.3), value=0)
         ]),
         'valid': transforms.Compose([
@@ -477,7 +465,6 @@ if __name__ == "__main__":
         ])
     }
 
-    # 数据集路径
     dataset = '/mnt/data4/膀胱镜诊断/dataset'
     train_directory = os.path.join(dataset, 'train')
     valid_directory = os.path.join(dataset, 'valid')
@@ -497,42 +484,33 @@ if __name__ == "__main__":
         print(f"⚠️ 警告: 数据集实际类别顺序 {data['train'].classes} 与 CLASS_NAMES {CLASS_NAMES} 不一致！"
               f"请调整 CLASS_NAMES 顺序或文件夹名，否则 label 与类别名会错配。")
 
-    # 数据加载器
     train_loader = DataLoader(data['train'], batch_size=30, shuffle=True)
     val_loader = DataLoader(data['valid'], batch_size=30, shuffle=True)
     test_loader = DataLoader(data['test'], batch_size=30, shuffle=True)
 
-    # 损失函数和优化器
     criterion = Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
-    # 训练器
     trainer = Trainer(model, train_loader, val_loader, criterion, optimizer, device, scheduler,
-                          save_dir='checkpoints')
+                      save_dir='checkpoints')
 
-    # 训练模型
     train_losses, val_losses, train_accs, val_accs = trainer.train(num_epochs=20)
 
-    # ★ 在测试前，加载表现最好的模型权重
     if trainer.best_model_state is not None:
         print("🔄 加载最佳模型权重进行测试...")
-        # 若使用了 DataParallel，需要处理一下 module. 前缀
         state_dict = trainer.best_model_state
         if isinstance(model, nn.DataParallel):
             model.module.load_state_dict(state_dict)
         else:
             model.load_state_dict(state_dict)
 
-    # 评估模型
     results = evaluate_model(model, test_loader, device, class_names=CLASS_NAMES)
 
-    # 可视化结果（Agg 后端下不会弹窗，直接保存文件）
     plot_training_history(trainer, save_dir='results')
     roc_auc = plot_roc_curve(results, class_names=CLASS_NAMES, save_dir='results')
     plot_confusion_matrix(results, class_names=CLASS_NAMES, save_dir='results')
 
-    # 保存最终结果
     save_final_results(results, trainer, roc_auc, save_dir='results')
 
     print("模型训练和评估完成！所有结果已保存在 results 文件夹中。")
