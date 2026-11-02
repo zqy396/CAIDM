@@ -5,7 +5,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
-# 大图防内存警告
+# Prevent memory warning for large images
 Image.MAX_IMAGE_PIXELS = 1000000000
 
 dataset_dir = '/mnt/data4/膀胱镜诊断/dataset/all-two/'
@@ -17,10 +17,10 @@ train_per = 0.7
 valid_per = 0.15
 test_per = 0.15
 
-# ================= 黑边裁剪参数 =================
-BLACK_THRESHOLD = 15      # 灰度低于此认为黑色，如果边缘组织被裁掉，可以调低到 10
-PADDING = 10              # 裁剪后四周保留的像素
-MAKE_SQUARE = True        # 是否强行裁剪成正方形（推荐True，后续Resize不会变形）
+# ================= Black Border Crop Parameters =================
+BLACK_THRESHOLD = 15      # Grayscale values below this are considered black. If edge tissues are cropped out, lower it to 10.
+PADDING = 10              # Pixels kept around the cropped area
+MAKE_SQUARE = True        # Force crop into a square (True recommended, prevents distortion in subsequent Resize)
 
 
 def makedir(new_dir):
@@ -30,7 +30,7 @@ def makedir(new_dir):
 
 def crop_black_border(img, threshold=BLACK_THRESHOLD, padding=PADDING, make_square=MAKE_SQUARE):
     """
-    裁剪内窥镜黑边，自动忽略角落的小图标/水印。
+    Crop black borders from endoscopic images, automatically ignoring small icons/watermarks in corners.
     """
     arr = np.array(img)
     if arr.ndim == 3:
@@ -38,15 +38,15 @@ def crop_black_border(img, threshold=BLACK_THRESHOLD, padding=PADDING, make_squa
     else:
         gray = arr
 
-    # 1. 二值化：非黑区域设为 255
+    # 1. Binarization: non-black areas set to 255
     mask = (gray > threshold).astype(np.uint8) * 255
 
-    # 2. 连通域分析
+    # 2. Connected component analysis
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     if num_labels <= 1:
-        return img, img.size  # 全黑
+        return img, img.size  # All black
 
-    # 3. 找面积最大的前景区域（排除了背景 0）
+    # 3. Find the largest foreground area (excluding background 0)
     max_area = 0
     best_idx = 0
     for i in range(1, num_labels):
@@ -57,7 +57,7 @@ def crop_black_border(img, threshold=BLACK_THRESHOLD, padding=PADDING, make_squa
     if best_idx == 0:
         return img, img.size
 
-    # 4. 提取最大区域的 Bounding Box
+    # 4. Extract Bounding Box of the largest area
     x = stats[best_idx, cv2.CC_STAT_LEFT]
     y = stats[best_idx, cv2.CC_STAT_TOP]
     w = stats[best_idx, cv2.CC_STAT_WIDTH]
@@ -66,9 +66,9 @@ def crop_black_border(img, threshold=BLACK_THRESHOLD, padding=PADDING, make_squa
     cx = x + w // 2
     cy = y + h // 2
 
-    # 5. 裁剪区域计算
+    # 5. Calculate crop region
     if make_square:
-        # 变成正方形，边长取最大边
+        # Make it square, side length is the max edge
         side = max(w, h)
         xmin = cx - side // 2
         ymin = cy - side // 2
@@ -77,13 +77,13 @@ def crop_black_border(img, threshold=BLACK_THRESHOLD, padding=PADDING, make_squa
     else:
         xmin, ymin, xmax, ymax = x, y, x + w, y + h
 
-    # 加 padding
+    # Add padding
     xmin -= padding
     ymin -= padding
     xmax += padding
     ymax += padding
 
-    # 限制边界
+    # Restrict to boundaries
     xmin = max(0, xmin)
     ymin = max(0, ymin)
     xmax = min(arr.shape[1], xmax)
@@ -116,7 +116,7 @@ if __name__ == '__main__':
             imgs_num = len(imgs_list)
 
             if imgs_num == 0:
-                print(f'⚠️ 类别 {sDir} 没有图像，跳过')
+                print(f'⚠️ Class {sDir} has no images, skipping')
                 continue
 
             train_point = int(imgs_num * train_per)
@@ -146,6 +146,6 @@ if __name__ == '__main__':
                         n_cropped += 1
                     save_image(cropped, out_path)
                 except Exception as e:
-                    print(f'❌ 处理失败 {imgs_list[i]}: {e}')
+                    print(f'❌ Processing failed {imgs_list[i]}: {e}')
 
-            print(f'Class: {sDir}, 总数: {imgs_num}, train: {n_train}, valid: {n_valid}, test: {n_test}, 裁掉黑边: {n_cropped}')
+            print(f'Class: {sDir}, Total: {imgs_num}, train: {n_train}, valid: {n_valid}, test: {n_test}, Cropped: {n_cropped}')
