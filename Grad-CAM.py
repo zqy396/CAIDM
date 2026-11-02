@@ -10,13 +10,12 @@ import time
 from torchvision import transforms
 from get_model import get_model, ModelManager
 
-# ★ 改回三类分类
+# 3-Class Classification
 DEFAULT_CLASS_NAMES = ['HGC', 'LGC', 'MIBC']
 NUM_CLASSES = len(DEFAULT_CLASS_NAMES)
 
-
 # ============================================================
-# Grad-CAM（ResNet 用）
+# Grad-CAM (For ResNet)
 # ============================================================
 class FixedGradCAM:
     def __init__(self, model, target_layer):
@@ -59,7 +58,7 @@ class FixedGradCAM:
             if h * h == n_spatial:
                 t = tensor[:, offset:, :]
                 return t.reshape(B, h, h, C).permute(0, 3, 1, 2)
-        raise ValueError(f"无法将 N={N} 的 token 序列还原为空间特征图")
+        raise ValueError(f"Cannot reshape N={N} tokens to spatial feature map")
 
     def generate_cam(self, input_tensor, target_class=None):
         self.model.eval()
@@ -160,16 +159,16 @@ class DINOv2AttentionRollout:
             if h * h == n_spatial:
                 t = tokens[offset:]
                 return t.reshape(h, h)
-        raise ValueError(f"无法 reshape tokens，长度 {n}")
+        raise ValueError(f"Cannot reshape tokens, length {n}")
 
     def generate(self, input_tensor):
         encoder = self._get_dinov2_encoder()
         if encoder is None:
-            raise ValueError("找不到 dinov2_encoder")
+            raise ValueError("Cannot find dinov2_encoder")
 
         attn_layers = self._find_attention_layers(encoder)
         if not attn_layers:
-            raise ValueError("未找到带 qkv + num_heads 的 attention 层")
+            raise ValueError("No attention layers with qkv + num_heads found")
 
         attentions = []
         handles = []
@@ -180,7 +179,6 @@ class DINOv2AttentionRollout:
                     attentions.append(self._attn_probs_from_input(module, inp[0]).detach())
                 except Exception:
                     pass
-
             return hook
 
         for _, layer in attn_layers:
@@ -195,7 +193,7 @@ class DINOv2AttentionRollout:
                 h.remove()
 
         if not attentions:
-            raise ValueError("未捕获到 attention probs")
+            raise ValueError("No attention probs captured")
 
         N = attentions[0].shape[-1]
         device = attentions[0].device
@@ -230,8 +228,7 @@ class FixedGradCAMVisualizer:
         self._dinov2_attn_layers = None
 
     def _get_resnet_target_layer(self):
-        resnet_encoder = self.model.module.resnet_encoder if hasattr(self.model,
-                                                                     'module') else self.model.resnet_encoder
+        resnet_encoder = self.model.module.resnet_encoder if hasattr(self.model, 'module') else self.model.resnet_encoder
         last_conv = None
         for _, m in resnet_encoder.named_modules():
             if isinstance(m, torch.nn.Conv2d):
@@ -239,8 +236,7 @@ class FixedGradCAMVisualizer:
         return last_conv
 
     def _get_dinov2_target_layer(self):
-        dinov2_encoder = self.model.module.dinov2_encoder if hasattr(self.model,
-                                                                     'module') else self.model.dinov2_encoder
+        dinov2_encoder = self.model.module.dinov2_encoder if hasattr(self.model, 'module') else self.model.dinov2_encoder
         layers = DINOv2AttentionRollout._find_attention_layers(dinov2_encoder)
         self._dinov2_attn_layers = layers
         return layers[-1][1] if layers else None
@@ -276,20 +272,19 @@ class FixedGradCAMVisualizer:
 
     def _resnet_activation_l2_cam(self, input_tensor):
         if self.resnet_target_layer is None:
-            raise ValueError("ResNet 目标层未找到")
+            raise ValueError("ResNet target layer not found")
         acts = []
         h = self.resnet_target_layer.register_forward_hook(
             lambda m, i, o: acts.append(o[0].detach() if isinstance(o, (tuple, list)) else o.detach())
         )
         try:
-            resnet_encoder = self.model.module.resnet_encoder if hasattr(self.model,
-                                                                         'module') else self.model.resnet_encoder
+            resnet_encoder = self.model.module.resnet_encoder if hasattr(self.model, 'module') else self.model.resnet_encoder
             with torch.no_grad():
                 resnet_encoder(input_tensor)
         finally:
             h.remove()
         if not acts:
-            raise ValueError("未捕获 ResNet activation")
+            raise ValueError("No ResNet activation captured")
         feat = acts[0]
         cam = feat.norm(dim=1)[0]
         cam = cam.cpu().numpy()
@@ -312,11 +307,7 @@ class FixedGradCAMVisualizer:
                                save_dir='gradcam_results', tag="", skip_existing=False):
 
         filename = os.path.splitext(os.path.basename(image_path))[0]
-
-        # 核心逻辑：为每张图建一个专属文件夹
         img_save_dir = os.path.join(save_dir, filename)
-
-        # 文件名直接用 tag（比如 best_model_resnet.png）
         save_filename = tag if tag else "default"
         resnet_path = os.path.join(img_save_dir, f'{save_filename}_resnet.png')
 
@@ -341,7 +332,6 @@ class FixedGradCAMVisualizer:
         resnet_cam = self.generate_resnet_cam(input_tensor, target_class)
         resnet_heatmap = self._create_heatmap(original_array, resnet_cam, alpha=0.5)
 
-        # 只保存 ResNet 叠加热图
         cv2.imwrite(resnet_path, cv2.cvtColor(resnet_heatmap, cv2.COLOR_RGB2BGR))
 
         return {'save_path': resnet_path, 'skipped': False}
@@ -366,7 +356,7 @@ class FixedGradCAMVisualizer:
         split_start = time.time()
 
         for i, img_path in enumerate(image_files, 1):
-            print(f"[{i}/{len(image_files)}] 处理: {os.path.basename(img_path)}")
+            print(f"[{i}/{len(image_files)}] Processing: {os.path.basename(img_path)}")
             try:
                 res = self.visualize_single_image(
                     img_path, target_class=target_class,
@@ -378,11 +368,10 @@ class FixedGradCAMVisualizer:
                     skipped += 1
             except Exception as e:
                 failed += 1
-                print(f"❌ 处理 {img_path} 出错: {e}")
+                print(f"❌ Error processing {img_path}: {e}")
 
         elapsed = time.time() - split_start
-        print(
-            f"\n✅ 完成: 成功 {len(results) - skipped - failed} 张, 跳过 {skipped} 张, 失败 {failed} 张, 耗时 {elapsed:.1f}s")
+        print(f"\n✅ Completed: Success {len(results) - skipped - failed}, Skipped {skipped}, Failed {failed}, Time {elapsed:.1f}s")
         return results
 
     def visualize_dataset(self, root_dir, save_dir='gradcam_results', target_class=None,
@@ -393,7 +382,7 @@ class FixedGradCAMVisualizer:
         for class_name in sorted(os.listdir(root_dir)):
             class_dir = os.path.join(root_dir, class_name)
             if os.path.isdir(class_dir):
-                print(f"\n========== 类别: {class_name} ==========")
+                print(f"\n========== Class: {class_name} ==========")
                 res = self.visualize_folder(
                     class_dir,
                     save_dir=os.path.join(save_dir, class_name),
@@ -406,11 +395,11 @@ class FixedGradCAMVisualizer:
 
 
 # ============================================================
-# 主函数：遍历所有 Checkpoint
+# Main Function: Iterate through all Checkpoints
 # ============================================================
 def demo_gradcam_all_checkpoints():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"使用设备: {device}")
+    print(f"Using device: {device}")
 
     checkpoints_dir = '/mnt/data4/膀胱镜诊断/checkpoints'
     dataset_root = '/mnt/data4/膀胱镜诊断/dataset'
@@ -419,17 +408,16 @@ def demo_gradcam_all_checkpoints():
     RUN_SPLITS = ['train', 'valid', 'test']
 
     if not os.path.isdir(checkpoints_dir):
-        print(f"❌ 找不到 checkpoints 目录: {checkpoints_dir}")
+        print(f"❌ Cannot find checkpoints directory: {checkpoints_dir}")
         return
 
     ckpt_files = sorted([f for f in os.listdir(checkpoints_dir) if f.endswith('.pth')])
     if not ckpt_files:
-        print(f"⚠️ 目录 {checkpoints_dir} 下没有找到 .pth 文件")
+        print(f"⚠️ No .pth files found in {checkpoints_dir}")
         return
 
-    print(f"🔍 共找到 {len(ckpt_files)} 个检查点文件，准备开始处理...")
+    print(f"🔍 Found {len(ckpt_files)} checkpoint files, starting processing...")
 
-    # ★ 实例化模型时，NUM_CLASSES 改回 3
     model = get_model({'num_classes': NUM_CLASSES, 'dropout': 0.1}).to(device)
     model.eval()
 
@@ -438,17 +426,16 @@ def demo_gradcam_all_checkpoints():
         tag = os.path.splitext(ckpt_name)[0]
 
         print(f"\n\n{'#' * 70}")
-        print(f"🚀 [{idx + 1}/{len(ckpt_files)}] 开始处理检查点: {ckpt_name}")
+        print(f"🚀 [{idx + 1}/{len(ckpt_files)}] Processing checkpoint: {ckpt_name}")
         print(f"{'#' * 70}")
 
         try:
             checkpoint = torch.load(ckpt_path, map_location=device)
             state_dict = {k[7:] if k.startswith('module.') else k: v for k, v in checkpoint['model_state_dict'].items()}
             model.load_state_dict(state_dict)
-            print(
-                f"✅ 权重加载成功 (Epoch: {checkpoint.get('epoch', 'Unknown')}, Val Acc: {checkpoint.get('best_val_acc', 'Unknown')})")
+            print(f"✅ Weights loaded successfully (Epoch: {checkpoint.get('epoch', 'Unknown')}, Val Acc: {checkpoint.get('best_val_acc', 'Unknown')})")
         except Exception as e:
-            print(f"❌ 权重加载失败，跳过此检查点: {e}")
+            print(f"❌ Failed to load weights, skipping checkpoint: {e}")
             continue
 
         visualizer = FixedGradCAMVisualizer(model, device, class_names=DEFAULT_CLASS_NAMES)
@@ -456,14 +443,14 @@ def demo_gradcam_all_checkpoints():
         for split in RUN_SPLITS:
             split_dir = os.path.join(dataset_root, split)
             if not os.path.isdir(split_dir):
-                print(f"  ⚠️ split 目录不存在: {split_dir}")
+                print(f"  ⚠️ Split directory does not exist: {split_dir}")
                 continue
 
             subdirs = [d for d in os.listdir(split_dir) if os.path.isdir(os.path.join(split_dir, d))]
             if not subdirs:
                 continue
 
-            print(f"\n  ---------- 处理 split: {split} ----------")
+            print(f"\n  ---------- Processing split: {split} ----------")
             visualizer.visualize_dataset(
                 split_dir,
                 save_dir=os.path.join(output_root, split),
@@ -471,7 +458,7 @@ def demo_gradcam_all_checkpoints():
                 skip_existing=True,
             )
 
-    print(f"\n\n🎉 所有检查点全部处理完成！结果保存在: {os.path.abspath(output_root)}/")
+    print(f"\n\n🎉 All checkpoints processed! Results saved in: {os.path.abspath(output_root)}/")
 
 
 if __name__ == "__main__":
