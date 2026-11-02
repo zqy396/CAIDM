@@ -10,8 +10,8 @@ import time
 from torchvision import transforms
 from get_model import get_model, ModelManager
 
-# ★ 修改为二分类，小写与文件夹名保持一致
-DEFAULT_CLASS_NAMES = ['bca', 'nor']
+# ★ 改回三类分类
+DEFAULT_CLASS_NAMES = ['HGC', 'LGC', 'MIBC']
 NUM_CLASSES = len(DEFAULT_CLASS_NAMES)
 
 
@@ -416,7 +416,6 @@ def demo_gradcam_all_checkpoints():
     dataset_root = '/mnt/data4/膀胱镜诊断/dataset'
     output_root = 'gradcam_results_all'
 
-    # 跑哪些 split
     RUN_SPLITS = ['train', 'valid', 'test']
 
     if not os.path.isdir(checkpoints_dir):
@@ -430,7 +429,7 @@ def demo_gradcam_all_checkpoints():
 
     print(f"🔍 共找到 {len(ckpt_files)} 个检查点文件，准备开始处理...")
 
-    # ★ 实例化模型时，NUM_CLASSES 现在为 2
+    # ★ 实例化模型时，NUM_CLASSES 改回 3
     model = get_model({'num_classes': NUM_CLASSES, 'dropout': 0.1}).to(device)
     model.eval()
 
