@@ -5,26 +5,26 @@ from typing import Optional, Dict, Any
 import numpy as np
 
 
-class EGJALoss(nn.Module):
+class Loss(nn.Module):
     """
-    用于EGJA分期诊断的定制损失函数
-    支持多种损失组合和类别权重
+    Custom loss function for BCA staging diagnosis.
+    Supports multiple loss combinations and class weights.
     """
 
     def __init__(self,
                  class_weights: Optional[torch.Tensor] = None,
-                 alpha: float = 1.0,  # 交叉熵损失的权重
-                 beta: float = 0.1,  # 特征分离损失的权重
-                 gamma: float = 0.01,  # 门控网络正则化的权重
+                 alpha: float = 1.0,  # Weight for cross-entropy loss
+                 beta: float = 0.1,  # Weight for feature separation loss
+                 gamma: float = 0.01,  # Weight for gating network regularization
                  loss_type: str = 'cross_entropy'):
-        super(EGJALoss, self).__init__()
+        super(Loss, self).__init__()
 
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
         self.loss_type = loss_type
 
-        # 主分类损失
+        # Main classification loss
         if loss_type == 'cross_entropy':
             self.classification_loss = nn.CrossEntropyLoss(weight=class_weights)
         elif loss_type == 'focal':
@@ -36,35 +36,35 @@ class EGJALoss(nn.Module):
 
     def forward(self, outputs: Dict[str, torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
         """
-        计算总损失
+        Compute total loss.
 
         Args:
-            outputs: 模型输出字典，包含：
-                - logits: 分类logits [B, num_classes]
-                - fused_features: 融合特征 [B, feature_dim]
-                - resnet_features: ResNet特征 [B, feature_dim]
-                - dinov2_features: DINOv2特征 [B, feature_dim]
-                - gate_weights: 门控权重元组 (a_res, a_dino)
-            targets: 真实标签 [B]
+            outputs: Model output dictionary, containing:
+                - logits: classification logits [B, num_classes]
+                - fused_features: fused features [B, feature_dim]
+                - resnet_features: ResNet features [B, feature_dim]
+                - dinov2_features: DINOv2 features [B, feature_dim]
+                - gate_weights: gating weights tuple (a_res, a_dino)
+            targets: ground truth labels [B]
 
         Returns:
-            总损失值
+            Total loss value
         """
         logits = outputs['logits']
 
-        # 主分类损失
+        # Main classification loss
         classification_loss = self.classification_loss(logits, targets)
 
         total_loss = self.alpha * classification_loss
 
-        # 特征分离损失（鼓励不同类别的特征在特征空间中分离）
+        # Feature separation loss (encourages features of different classes to separate in the feature space)
         if self.beta > 0:
             feature_separation_loss = self.compute_feature_separation_loss(
                 outputs['fused_features'], targets
             )
             total_loss += self.beta * feature_separation_loss
 
-        # 门控网络正则化（鼓励平衡使用两个编码器）
+        # Gating network regularization (encourages balanced usage of both encoders)
         if self.gamma > 0 and 'gate_weights' in outputs:
             gate_regularization_loss = self.compute_gate_regularization_loss(
                 outputs['gate_weights']
@@ -75,26 +75,26 @@ class EGJALoss(nn.Module):
 
     def compute_feature_separation_loss(self, features: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
-        计算特征分离损失，鼓励不同类别的特征在特征空间中更好分离
+        Compute feature separation loss, encouraging features of different classes to separate better in the feature space.
         """
-        # 添加安全检查：确保targets是有效的整数张量
+        # Add safety check: ensure targets is a valid integer tensor
         if len(targets) == 0:
             return torch.tensor(0.0, device=features.device)
 
-        # 确保targets是整数类型
+        # Ensure targets is of integer type
         if targets.dtype != torch.long:
             targets = targets.long()
 
-        # 检查targets中是否有无效值（负数或超出范围的值）
+        # Check if targets contains invalid values (negative or out-of-range values)
         if (targets < 0).any():
-            # 如果存在负值，返回0损失
+            # If negative values exist, return 0 loss
             return torch.tensor(0.0, device=features.device)
 
         unique_classes = torch.unique(targets)
         if len(unique_classes) < 2:
             return torch.tensor(0.0, device=features.device)
 
-        # 计算每个类别的特征中心
+        # Compute feature centers for each class
         class_centers = []
         for cls in unique_classes:
             cls_features = features[targets == cls]
@@ -106,7 +106,7 @@ class EGJALoss(nn.Module):
 
         class_centers = torch.stack(class_centers)
 
-        # 计算类别中心之间的距离
+        # Compute distances between class centers
         n_classes = len(class_centers)
         center_distances = []
 
@@ -124,27 +124,27 @@ class EGJALoss(nn.Module):
 
         center_distances = torch.stack(center_distances)
 
-        # 我们希望最小化相似类别间的距离的倒数（鼓励分离）
-        # 使用负的平均距离，因为我们要最大化距离
+        # We want to minimize the inverse of distances between similar classes (encourage separation)
+        # Use negative mean distance, because we want to maximize the distance
         separation_loss = -torch.mean(center_distances)
 
         return separation_loss
 
     def compute_gate_regularization_loss(self, gate_weights: tuple) -> torch.Tensor:
         """
-        计算门控网络正则化损失，鼓励平衡使用两个编码器
+        Compute gating network regularization loss, encouraging balanced usage of both encoders.
         """
         a_res, a_dino = gate_weights
 
-        # 计算两个门控权重的熵，鼓励多样性
+        # Compute entropy of both gating weights to encourage diversity
         entropy_res = -torch.mean(a_res * torch.log(a_res + 1e-8))
         entropy_dino = -torch.mean(a_dino * torch.log(a_dino + 1e-8))
 
-        # 鼓励两个编码器的使用比例接近
+        # Encourage usage ratios of the two encoders to be close
         usage_ratio = torch.mean(a_res) / (torch.mean(a_dino) + 1e-8)
         balance_loss = torch.abs(usage_ratio - 1.0)
 
-        # 总的正则化损失是熵和平衡损失的组合
+        # Total regularization loss is a combination of entropy and balance loss
         regularization_loss = entropy_res + entropy_dino + balance_loss
 
         return regularization_loss
@@ -152,7 +152,7 @@ class EGJALoss(nn.Module):
 
 class FocalLoss(nn.Module):
     """
-    Focal Loss用于处理类别不平衡问题
+    Focal Loss for handling class imbalance issues.
     """
 
     def __init__(self, alpha=None, gamma=2.0, weight=None, reduction='mean'):
@@ -185,7 +185,7 @@ class FocalLoss(nn.Module):
 
 class LabelSmoothingLoss(nn.Module):
     """
-    标签平滑损失，防止模型过度自信
+    Label smoothing loss to prevent the model from becoming overconfident.
     """
 
     def __init__(self, classes=3, smoothing=0.1, dim=-1):
@@ -206,48 +206,48 @@ class LabelSmoothingLoss(nn.Module):
 
 def calculate_class_weights(dataset, num_classes=3):
     """
-    计算类别权重以处理类别不平衡
+    Calculate class weights to handle class imbalance.
 
     Args:
-        dataset: 包含标签的数据集
-        num_classes: 类别数量
+        dataset: Dataset containing labels
+        num_classes: Number of classes
 
     Returns:
-        类别权重张量
+        Class weights tensor
     """
-    # 统计每个类别的样本数
+    # Count the number of samples in each class
     class_counts = torch.zeros(num_classes)
 
     for _, label in dataset:
         class_counts[label] += 1
 
-    # 计算权重（样本数越少，权重越高）
+    # Calculate weights (fewer samples means higher weight)
     total_samples = class_counts.sum()
     class_weights = total_samples / (num_classes * class_counts)
 
     return class_weights
 
 
-# 损失函数工厂函数
+# Loss function factory function
 def get_loss_function(config: Dict[str, Any], dataset=None):
     """
-    根据配置获取损失函数
+    Get loss function based on configuration.
 
     Args:
-        config: 配置字典
-        dataset: 用于计算类别权重的数据集（可选）
+        config: Configuration dictionary
+        dataset: Dataset for calculating class weights (optional)
 
     Returns:
-        损失函数实例
+        Loss function instance
     """
     loss_config = config.get('loss', {})
     loss_type = loss_config.get('type', 'cross_entropy')
 
-    # 计算类别权重（如果提供数据集）
+    # Calculate class weights (if dataset is provided)
     class_weights = None
     if dataset is not None and loss_config.get('use_class_weights', False):
         class_weights = calculate_class_weights(dataset)
-        print(f"计算得到的类别权重: {class_weights}")
+        print(f"Calculated class weights: {class_weights}")
 
     if loss_type == 'focal':
         return FocalLoss(
@@ -261,7 +261,7 @@ def get_loss_function(config: Dict[str, Any], dataset=None):
             smoothing=loss_config.get('smoothing', 0.1)
         )
     else:
-        return EGJALoss(
+        return Loss(
             class_weights=class_weights,
             alpha=loss_config.get('alpha', 1.0),
             beta=loss_config.get('beta', 0.1),
@@ -270,7 +270,7 @@ def get_loss_function(config: Dict[str, Any], dataset=None):
         )
 
 
-# 更新默认配置以包含损失函数设置
+# Update default configuration to include loss function settings
 DEFAULT_CONFIG = {
     'model': {
         'num_classes': 3,
@@ -286,9 +286,9 @@ DEFAULT_CONFIG = {
     },
     'loss': {
         'type': 'cross_entropy',  # 'cross_entropy', 'focal', 'label_smooth'
-        'alpha': 1.0,  # 主损失权重
-        'beta': 0.1,  # 特征分离损失权重
-        'gamma': 0.01,  # 门控正则化权重
+        'alpha': 1.0,  # Main loss weight
+        'beta': 0.1,  # Feature separation loss weight
+        'gamma': 0.01,  # Gating regularization weight
         'use_class_weights': True
     },
     'data': {
@@ -297,4 +297,3 @@ DEFAULT_CONFIG = {
         'normalize_std': [0.229, 0.224, 0.225]
     }
 }
-
